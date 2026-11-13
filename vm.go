@@ -5046,11 +5046,12 @@ func (leaveFinally) exec(vm *vm) {
 
 // addDisposable adds the value at the top of the stack (without removing it) as a disposable resource
 // to the current try frame, which must be the one created by compiler.enterUsingBlock().
-type addDisposable struct{}
+// The value is true for 'await using' declarations.
+type addDisposable bool
 
-func (addDisposable) exec(vm *vm) {
+func (async addDisposable) exec(vm *vm) {
 	// May call a getter, therefore must be done before obtaining the try frame pointer.
-	if res, ok := vm.r.createDisposableResource(vm.stack[vm.sp-1]); ok {
+	if res, ok := vm.r.createDisposableResource(vm.stack[vm.sp-1], bool(async)); ok {
 		tf := &vm.tryStack[len(vm.tryStack)-1]
 		if tf.disposables == nil {
 			tf.disposables = &disposeCapability{}
@@ -5073,6 +5074,84 @@ func (disposeResources) exec(vm *vm) {
 		// the try stack could have been reallocated
 		vm.tryStack[idx].exception = ex
 	}
+	vm.pc++
+}
+
+// addDisposeError records an exception thrown while disposing of the resources of the try frame at idx.
+func (vm *vm) addDisposeError(idx int, ex *Exception) {
+	if completion := vm.tryStack[idx].exception; completion != nil {
+		ex = &Exception{
+			val: vm.r.newSuppressedError(ex.val, completion.val),
+		}
+	}
+	vm.tryStack[idx].exception = ex
+}
+
+// disposeResourcesAsync is the 'await using' version of disposeResources. It disposes of the resources until it
+// finds one that needs to be awaited, in which case it pushes the value to await and continues to the next
+// instruction (which must be await). Once there are no more resources left it pops the current try frame (the one
+// that catches the rejections) and jumps. The try frame created by compiler.enterUsingBlock() must be right below
+// the current one.
+type disposeResourcesAsync int32
+
+func (jmp disposeResourcesAsync) exec(vm *vm) {
+	idx := len(vm.tryStack) - 2
+	dc := vm.tryStack[idx].disposables
+	if dc != nil {
+		for {
+			l := len(dc.resources)
+			if l == 0 {
+				break
+			}
+			res := dc.resources[l-1]
+			if !res.async && dc.needsAwait && !dc.hasAwaited {
+				dc.needsAwait = false
+				vm.push(_undefined)
+				vm.pc++
+				return
+			}
+			dc.resources[l-1] = disposableResource{}
+			dc.resources = dc.resources[:l-1]
+			if res.method == nil {
+				dc.needsAwait = true
+				continue
+			}
+			var result Value
+			ex := vm.try(func() {
+				result = res.method(FunctionCall{This: res.value})
+			})
+			if ex != nil {
+				vm.addDisposeError(idx, ex)
+				continue
+			}
+			if res.async {
+				dc.hasAwaited = true
+				vm.push(nilSafe(result))
+				vm.pc++
+				return
+			}
+		}
+		if dc.needsAwait && !dc.hasAwaited {
+			dc.needsAwait = false
+			vm.push(_undefined)
+			vm.pc++
+			return
+		}
+		vm.tryStack[idx].disposables = nil
+	}
+	vm.popTryFrame()
+	vm.pc += int(jmp)
+}
+
+// disposeAsyncError handles a rejection of an awaited result of an async dispose method. The exception is at
+// the top of the stack, the try frame created by compiler.enterUsingBlock() is right below the current one.
+type disposeAsyncError struct{}
+
+func (disposeAsyncError) exec(vm *vm) {
+	vm.sp--
+	vm.addDisposeError(len(vm.tryStack)-2, &Exception{
+		val: vm.stack[vm.sp],
+	})
 	vm.pc++
 }
 

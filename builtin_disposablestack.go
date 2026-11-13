@@ -2,39 +2,77 @@ package goja
 
 // disposableResource is a DisposableResource Record. For the resources added by DisposableStack.prototype.adopt()
 // and DisposableStack.prototype.defer() the value is undefined and the method is a closure calling onDispose.
+//
+// async is set if the hint is async-dispose. In this case method can be nil (if the value is null or undefined).
 type disposableResource struct {
 	value  Value
 	method func(FunctionCall) Value
+	async  bool
 }
 
 // disposeCapability is a DisposeCapability Record.
 type disposeCapability struct {
 	resources []disposableResource
+
+	// state of an asynchronous DisposeResources() in progress
+	needsAwait, hasAwaited bool
 }
 
-// createDisposableResource implements CreateDisposableResource(V, sync-dispose).
-// Returns false if v is null or undefined in which case no resource should be added.
-func (r *Runtime) createDisposableResource(v Value) (res disposableResource, ok bool) {
+// createDisposableResource implements the part of AddDisposableResource(disposeCapability, V, hint) that creates
+// the resource, where hint is async-dispose if async is true, sync-dispose otherwise.
+// Returns false if no resource should be added (which is when v is null or undefined and the hint is sync-dispose).
+func (r *Runtime) createDisposableResource(v Value, async bool) (res disposableResource, ok bool) {
 	if v == nil || v == _undefined || v == _null {
+		if async {
+			return disposableResource{
+				value: _undefined,
+				async: true,
+			}, true
+		}
 		return
 	}
 	obj, isObj := v.(*Object)
 	if !isObj {
 		panic(r.NewTypeError("Disposable resource must be an object, null or undefined"))
 	}
-	method := toMethod(obj.self.getSym(SymDispose, obj))
+	var method func(FunctionCall) Value
+	if async {
+		method = toMethod(obj.self.getSym(SymAsyncDispose, obj))
+	}
 	if method == nil {
-		panic(r.NewTypeError("Object is not disposable: [Symbol.dispose] is not a function"))
+		method = toMethod(obj.self.getSym(SymDispose, obj))
+		if method == nil {
+			if async {
+				panic(r.NewTypeError("Object is not async disposable: neither [Symbol.asyncDispose] nor [Symbol.dispose] is a function"))
+			}
+			panic(r.NewTypeError("Object is not disposable: [Symbol.dispose] is not a function"))
+		}
+		if async {
+			// The synchronous method is wrapped so that it returns a promise.
+			syncMethod := method
+			method = func(call FunctionCall) Value {
+				pcap := r.newPromiseCapability(r.getPromise())
+				if ex := r.vm.try(func() {
+					syncMethod(call)
+				}); ex != nil {
+					pcap.reject(ex.val)
+				} else {
+					pcap.resolve(_undefined)
+				}
+				return pcap.promise
+			}
+		}
 	}
 	return disposableResource{
 		value:  v,
 		method: method,
+		async:  async,
 	}, true
 }
 
 // addDisposableResource implements AddDisposableResource(disposeCapability, V, sync-dispose).
 func (r *Runtime) addDisposableResource(dc *disposeCapability, v Value) {
-	if res, ok := r.createDisposableResource(v); ok {
+	if res, ok := r.createDisposableResource(v, false); ok {
 		dc.resources = append(dc.resources, res)
 	}
 }

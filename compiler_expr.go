@@ -1534,8 +1534,8 @@ func (e *compiledFunctionLiteral) compile() (prg *Program, name unistring.String
 		e.c.emit(yieldEmpty)
 	}
 	usingLbl := -1
-	if hasUsingDeclaration(body) {
-		usingLbl = e.c.enterUsingBlock()
+	if using, async := hasUsingDeclaration(body); using {
+		usingLbl = e.c.enterUsingBlock(async)
 	}
 	e.c.compileStatements(body, false)
 	if usingLbl != -1 {

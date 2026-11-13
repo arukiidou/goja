@@ -171,8 +171,8 @@ func (c *compiler) compileTryStatement(v *ast.TryStatement, needResult bool) {
 			}
 			c.compileLexicalDeclarations(list, true)
 			usingLbl := -1
-			if hasUsingDeclaration(list) {
-				usingLbl = c.enterUsingBlock()
+			if using, async := hasUsingDeclaration(list); using {
+				usingLbl = c.enterUsingBlock(async)
 			}
 			c.compileFunctions(funcs)
 			c.compileStatements(list, bodyNeedResult)
@@ -425,8 +425,8 @@ func (c *compiler) compileForInto(into ast.ForInto, needResult bool) (enter *ent
 		case *ast.Identifier:
 			b := c.createLexicalIdBinding(target.Name, into.IsConst, int(into.Idx)-1)
 			if into.IsUsing {
-				usingLbl = c.enterUsingBlock()
-				c.emit(enumGet, addDisposable{})
+				usingLbl = c.enterUsingBlock(into.IsAwaitUsing)
+				c.emit(enumGet, addDisposable(into.IsAwaitUsing))
 			} else {
 				c.emit(enumGet)
 			}
@@ -961,23 +961,30 @@ func (c *compiler) compileLexicalDeclaration(v *ast.LexicalDeclaration) {
 	}
 }
 
-func hasUsingDeclaration(list []ast.Statement) bool {
+// hasUsingDeclaration reports whether the statement list directly contains a using declaration and whether
+// any of those is an 'await using' declaration.
+func hasUsingDeclaration(list []ast.Statement) (using, async bool) {
 	for _, st := range list {
 		if lex, ok := st.(*ast.LexicalDeclaration); ok && lex.Using {
-			return true
+			using = true
+			if lex.Await {
+				async = true
+				break
+			}
 		}
 	}
-	return false
+	return
 }
 
 // enterUsingBlock starts a region in which the resources added by using declarations are tracked. It is
 // compiled as an implicit try/finally where the 'finally' block disposes of the resources.
 // Returns the position of the 'try' instruction which must be passed to leaveUsingBlock().
-func (c *compiler) enterUsingBlock() int {
+func (c *compiler) enterUsingBlock(async bool) int {
 	c.block = &block{
 		typ:   blockTry,
 		outer: c.block,
 		using: true,
+		async: async,
 	}
 	lbl := len(c.p.code)
 	c.emit(nil)
@@ -987,7 +994,23 @@ func (c *compiler) enterUsingBlock() int {
 func (c *compiler) leaveUsingBlock(lbl int) {
 	c.emit(enterFinally{})
 	c.p.code[lbl] = try{finallyOffset: int32(len(c.p.code) - lbl)} // finallyOffset should not include enterFinally
-	c.emit(disposeResources{}, leaveFinally{})
+	if c.block.async {
+		// Each iteration disposes of the resources until one of them needs to be awaited. The 'try' is so that
+		// a rejection does not prevent the remaining resources from being disposed of.
+		c.emit(
+			try{catchOffset: 5},
+			disposeResourcesAsync(7),
+			await,
+			pop,
+			jump(2),
+			disposeAsyncError{},
+			leaveTry{},
+			jump(-7),
+		)
+	} else {
+		c.emit(disposeResources{})
+	}
+	c.emit(leaveFinally{})
 	c.leaveBlock()
 }
 
@@ -1008,7 +1031,7 @@ func (c *compiler) compileUsingDeclaration(v *ast.LexicalDeclaration) {
 		c.assert(b != nil, offset, "Lexical declaration for an unbound name")
 		c.emitNamedOrConst(c.compileExpression(e.Initializer), target.Name)
 		c.p.addSrcMap(offset)
-		c.emit(addDisposable{})
+		c.emit(addDisposable(v.Await))
 		b.emitInitP()
 	}
 }
@@ -1145,8 +1168,8 @@ func (c *compiler) compileBlockStatement(v *ast.BlockStatement, needResult bool)
 		c.emit(enter)
 	}
 	usingLbl := -1
-	if scopeDeclared && hasUsingDeclaration(v.List) {
-		usingLbl = c.enterUsingBlock()
+	if using, async := hasUsingDeclaration(v.List); using && scopeDeclared {
+		usingLbl = c.enterUsingBlock(async)
 	}
 	c.compileFunctions(funcs)
 	c.compileStatements(v.List, needResult)

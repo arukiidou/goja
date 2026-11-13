@@ -321,7 +321,7 @@ type block struct {
 	outer      *block
 	breaking   *block // set when the 'finally' block is an empty break statement sequence
 	needResult bool
-	async      bool // for-await loop
+	async      bool // for-await loop or a 'using' block that contains 'await using' declarations
 	using      bool // implicit try/finally that disposes of the resources added by using declarations
 }
 

@@ -77,7 +77,11 @@ func (self *_parser) parseStatement() ast.Statement {
 		return self.parseLexicalDeclaration(self.token)
 	case token.IDENTIFIER:
 		if self.isUsingDeclaration(false) {
-			return self.parseUsingDeclaration()
+			return self.parseUsingDeclaration(false)
+		}
+	case token.AWAIT:
+		if self.isAwaitUsingDeclaration() {
+			return self.parseUsingDeclaration(true)
 		}
 	case token.ASYNC:
 		if f := self.parseMaybeAsyncFunction(true); f != nil {
@@ -685,7 +689,7 @@ func (self *_parser) parseForOrForInStatement() ast.Statement {
 		allowIn := self.scope.allowIn
 		self.scope.allowIn = false
 		tok := self.token
-		isUsing := false
+		isUsing, isAwaitUsing := false, false
 		if tok == token.LET {
 			switch self.peek() {
 			case token.IDENTIFIER, token.LEFT_BRACKET, token.LEFT_BRACE:
@@ -695,10 +699,17 @@ func (self *_parser) parseForOrForInStatement() ast.Statement {
 		} else if self.isUsingDeclaration(true) {
 			tok = token.CONST
 			isUsing = true
+		} else if self.isAwaitUsingDeclaration() {
+			tok = token.CONST
+			isUsing = true
+			isAwaitUsing = true
 		}
 		if tok == token.VAR || tok == token.LET || tok == token.CONST {
 			idx := self.idx
 			self.next()
+			if isAwaitUsing {
+				self.next() // using
+			}
 			var list []*ast.Binding
 			if tok == token.VAR {
 				list = self.parseVarDeclarationList(idx)
@@ -735,10 +746,11 @@ func (self *_parser) parseForOrForInStatement() ast.Statement {
 					}
 				} else {
 					into = &ast.ForDeclaration{
-						Idx:     idx,
-						IsConst: tok == token.CONST,
-						IsUsing: isUsing,
-						Target:  list[0].Target,
+						Idx:          idx,
+						IsConst:      tok == token.CONST,
+						IsUsing:      isUsing,
+						IsAwaitUsing: isAwaitUsing,
+						Target:       list[0].Target,
 					}
 				}
 			} else {
@@ -756,6 +768,7 @@ func (self *_parser) parseForOrForInStatement() ast.Statement {
 							Idx:   idx,
 							Token: tok,
 							Using: isUsing,
+							Await: isAwaitUsing,
 							List:  list,
 						},
 					}
@@ -887,6 +900,24 @@ func (self *_parser) isUsingDeclaration(forHead bool) bool {
 	return res
 }
 
+// isAwaitUsingDeclaration returns true if the current token is 'await' that starts an 'await using' declaration,
+// i.e. it is followed by 'using' and a binding identifier, all on the same line.
+func (self *_parser) isAwaitUsingDeclaration() bool {
+	if self.token != token.AWAIT || !self.scope.allowAwait || !self.scope.inAsync {
+		return false
+	}
+	var state parserState
+	self.mark(&state)
+	self.next()
+	res := !self.implicitSemicolon && self.token == token.IDENTIFIER && self.literal == "using"
+	if res {
+		self.next()
+		res = !self.implicitSemicolon && (self.token == token.IDENTIFIER || token.IsUnreservedWord(self.token))
+	}
+	self.restore(&state)
+	return res
+}
+
 func (self *_parser) checkUsingBindings(list []*ast.Binding) {
 	for _, item := range list {
 		if _, ok := item.Target.(*ast.Identifier); !ok {
@@ -900,8 +931,11 @@ func (self *_parser) checkUsingBindings(list []*ast.Binding) {
 	}
 }
 
-func (self *_parser) parseUsingDeclaration() *ast.LexicalDeclaration {
+func (self *_parser) parseUsingDeclaration(await bool) *ast.LexicalDeclaration {
 	idx := self.idx
+	if await {
+		self.next() // await
+	}
 	self.next() // using
 	if !self.scope.allowLet {
 		self.error(idx, "Lexical declaration cannot appear in a single-statement context")
@@ -915,6 +949,7 @@ func (self *_parser) parseUsingDeclaration() *ast.LexicalDeclaration {
 		Idx:   idx,
 		Token: token.CONST,
 		Using: true,
+		Await: await,
 		List:  list,
 	}
 }

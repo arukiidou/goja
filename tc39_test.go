@@ -147,7 +147,9 @@ var (
 		"test/language/module-code/top-level-await/module-graphs-does-not-hang.js":                                                          true,
 
 		// async generators are not supported yet
-		"test/language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js": true,
+		"test/language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js":                         true,
+		"test/language/statements/await-using/initializer-Symbol.asyncDispose-called-at-end-of-asyncgeneratorbody.js": true,
+		"test/language/statements/await-using/initializer-Symbol.dispose-called-at-end-of-asyncgeneratorbody.js":      true,
 
 		// These reference AsyncDisposableStack which is not implemented yet
 		"test/built-ins/DisposableStack/prototype/adopt/this-does-not-have-internal-disposablestate-throws.js":   true,
@@ -203,6 +205,8 @@ var (
 			"test/built-ins/Iterator/prototype/Symbol.dispose/",
 			"test/language/statements/using/",
 			"test/language/statements/for-of/head-using-",
+			"test/language/statements/await-using/",
+			"test/language/statements/for-of/head-await-using-",
 		},
 	}
 )
