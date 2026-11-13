@@ -145,6 +145,13 @@ var (
 		"test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js":                         true,
 		"test/language/module-code/top-level-await/pending-async-dep-from-cycle.js":                                                         true,
 		"test/language/module-code/top-level-await/module-graphs-does-not-hang.js":                                                          true,
+
+		// These reference AsyncDisposableStack which is not implemented yet
+		"test/built-ins/DisposableStack/prototype/adopt/this-does-not-have-internal-disposablestate-throws.js":   true,
+		"test/built-ins/DisposableStack/prototype/defer/this-does-not-have-internal-disposablestate-throws.js":   true,
+		"test/built-ins/DisposableStack/prototype/dispose/this-does-not-have-internal-disposablestate-throws.js": true,
+		"test/built-ins/DisposableStack/prototype/move/this-does-not-have-internal-disposablestate-throws.js":    true,
+		"test/built-ins/DisposableStack/prototype/use/this-does-not-have-internal-disposablestate-throws.js":     true,
 	}
 
 	featuresBlackList = []string{
