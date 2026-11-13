@@ -180,6 +180,34 @@ func (r *Runtime) newAggregateErrorErrors(errors []Value) *Object {
 	return obj.val
 }
 
+func (r *Runtime) builtin_SuppressedError(args []Value, proto *Object) *Object {
+	obj := r.newErrorObject(proto, classError)
+	if len(args) > 2 && args[2] != nil && args[2] != _undefined {
+		obj._putProp("message", args[2].toString(), true, false, true)
+	}
+	var err, suppressed Value = _undefined, _undefined
+	if len(args) > 0 && args[0] != nil {
+		err = args[0]
+	}
+	if len(args) > 1 && args[1] != nil {
+		suppressed = args[1]
+	}
+	obj._putProp("error", err, true, false, true)
+	obj._putProp("suppressed", suppressed, true, false, true)
+
+	return obj.val
+}
+
+// newSuppressedError creates a SuppressedError the way DisposeResources() does: using the intrinsic prototype
+// and without the "message" property.
+func (r *Runtime) newSuppressedError(err, suppressed Value) *Object {
+	proto := r.getPrototypeFromCtor(r.getSuppressedError(), nil, nil)
+	obj := r.newErrorObject(proto, classError)
+	obj._putProp("error", err, true, false, true)
+	obj._putProp("suppressed", suppressed, true, false, true)
+	return obj.val
+}
+
 func (r *Runtime) error_isError(call FunctionCall) Value {
 	if o, ok := call.Argument(0).(*Object); ok {
 		if o.self.className() == classError {
@@ -264,6 +292,16 @@ func (r *Runtime) getAggregateError() *Object {
 		ret = &Object{runtime: r}
 		r.global.AggregateError = ret
 		r.newNativeFuncConstructProto(ret, r.builtin_AggregateError, "AggregateError", r.createErrorPrototype(stringAggregateError, ret), r.getError(), 2)
+	}
+	return ret
+}
+
+func (r *Runtime) getSuppressedError() *Object {
+	ret := r.global.SuppressedError
+	if ret == nil {
+		ret = &Object{runtime: r}
+		r.global.SuppressedError = ret
+		r.newNativeFuncConstructProto(ret, r.builtin_SuppressedError, "SuppressedError", r.createErrorPrototype(stringSuppressedError, ret), r.getError(), 3)
 	}
 	return ret
 }

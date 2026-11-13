@@ -84,19 +84,21 @@ type global struct {
 	BigInt64Array     *Object
 	BigUint64Array    *Object
 
-	WeakSet *Object
-	WeakMap *Object
-	Map     *Object
-	Set     *Object
+	WeakSet         *Object
+	DisposableStack *Object
+	WeakMap         *Object
+	Map             *Object
+	Set             *Object
 
-	Error          *Object
-	AggregateError *Object
-	TypeError      *Object
-	ReferenceError *Object
-	SyntaxError    *Object
-	RangeError     *Object
-	EvalError      *Object
-	URIError       *Object
+	Error           *Object
+	AggregateError  *Object
+	SuppressedError *Object
+	TypeError       *Object
+	ReferenceError  *Object
+	SyntaxError     *Object
+	RangeError      *Object
+	EvalError       *Object
+	URIError        *Object
 
 	GoError *Object
 
@@ -111,14 +113,15 @@ type global struct {
 	DatePrototype     *Object
 	SymbolPrototype   *Object
 
-	ArrayBufferPrototype *Object
-	DataViewPrototype    *Object
-	TypedArrayPrototype  *Object
-	WeakSetPrototype     *Object
-	WeakMapPrototype     *Object
-	MapPrototype         *Object
-	SetPrototype         *Object
-	PromisePrototype     *Object
+	ArrayBufferPrototype     *Object
+	DataViewPrototype        *Object
+	TypedArrayPrototype      *Object
+	WeakSetPrototype         *Object
+	DisposableStackPrototype *Object
+	WeakMapPrototype         *Object
+	MapPrototype             *Object
+	SetPrototype             *Object
+	PromisePrototype         *Object
 
 	GeneratorFunctionPrototype *Object
 	GeneratorFunction          *Object
@@ -437,6 +440,7 @@ func (r *Runtime) createIterProto(val *Object) objectImpl {
 	o := newBaseObjectObj(val, r.global.ObjectPrototype, classObject)
 
 	o._putSym(SymIterator, valueProp(r.newNativeFunc(r.returnThis, "[Symbol.iterator]", 0), true, false, true))
+	o._putSym(SymDispose, valueProp(r.newNativeFunc(r.iteratorProto_dispose, "[Symbol.dispose]", 0), true, false, true))
 	r.addIteratorHelpers(o)
 	return o
 }
