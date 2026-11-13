@@ -250,7 +250,12 @@ func init() {
 
 	skip(
 		// generators and async generators (harness/hidden-constructors.js)
-		"test/built-ins/Async",
+		// Note: this used to be the prefix "test/built-ins/Async" which also matches AsyncDisposableStack.
+		"test/built-ins/AsyncFromSyncIteratorPrototype",
+		"test/built-ins/AsyncFunction",
+		"test/built-ins/AsyncGeneratorFunction",
+		"test/built-ins/AsyncGeneratorPrototype",
+		"test/built-ins/AsyncIteratorPrototype",
 
 		// async generators
 		"test/language/statements/class/elements/wrapped-in-sc-rs-static-async-generator-",
