@@ -364,6 +364,7 @@ func createGlobalObjectTemplate() *objectTemplate {
 	addTypedArrays(t)
 	t.putStr("Symbol", func(r *Runtime) Value { return valueProp(r.getSymbol(), true, false, true) })
 	t.putStr("DisposableStack", func(r *Runtime) Value { return valueProp(r.getDisposableStack(), true, false, true) })
+	t.putStr("AsyncDisposableStack", func(r *Runtime) Value { return valueProp(r.getAsyncDisposableStack(), true, false, true) })
 	t.putStr("WeakSet", func(r *Runtime) Value { return valueProp(r.getWeakSet(), true, false, true) })
 	t.putStr("WeakMap", func(r *Runtime) Value { return valueProp(r.getWeakMap(), true, false, true) })
 	t.putStr("Map", func(r *Runtime) Value { return valueProp(r.getMap(), true, false, true) })

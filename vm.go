@@ -5077,16 +5077,6 @@ func (disposeResources) exec(vm *vm) {
 	vm.pc++
 }
 
-// addDisposeError records an exception thrown while disposing of the resources of the try frame at idx.
-func (vm *vm) addDisposeError(idx int, ex *Exception) {
-	if completion := vm.tryStack[idx].exception; completion != nil {
-		ex = &Exception{
-			val: vm.r.newSuppressedError(ex.val, completion.val),
-		}
-	}
-	vm.tryStack[idx].exception = ex
-}
-
 // disposeResourcesAsync is the 'await using' version of disposeResources. It disposes of the resources until it
 // finds one that needs to be awaited, in which case it pushes the value to await and continues to the next
 // instruction (which must be await). Once there are no more resources left it pops the current try frame (the one
@@ -5096,44 +5086,13 @@ type disposeResourcesAsync int32
 
 func (jmp disposeResourcesAsync) exec(vm *vm) {
 	idx := len(vm.tryStack) - 2
-	dc := vm.tryStack[idx].disposables
-	if dc != nil {
-		for {
-			l := len(dc.resources)
-			if l == 0 {
-				break
-			}
-			res := dc.resources[l-1]
-			if !res.async && dc.needsAwait && !dc.hasAwaited {
-				dc.needsAwait = false
-				vm.push(_undefined)
-				vm.pc++
-				return
-			}
-			dc.resources[l-1] = disposableResource{}
-			dc.resources = dc.resources[:l-1]
-			if res.method == nil {
-				dc.needsAwait = true
-				continue
-			}
-			var result Value
-			ex := vm.try(func() {
-				result = res.method(FunctionCall{This: res.value})
-			})
-			if ex != nil {
-				vm.addDisposeError(idx, ex)
-				continue
-			}
-			if res.async {
-				dc.hasAwaited = true
-				vm.push(nilSafe(result))
-				vm.pc++
-				return
-			}
-		}
-		if dc.needsAwait && !dc.hasAwaited {
-			dc.needsAwait = false
-			vm.push(_undefined)
+	if dc := vm.tryStack[idx].disposables; dc != nil {
+		completion := vm.tryStack[idx].exception
+		v, ok := vm.r.disposeStep(dc, &completion)
+		// the try stack could have been reallocated
+		vm.tryStack[idx].exception = completion
+		if ok {
+			vm.push(v)
 			vm.pc++
 			return
 		}
@@ -5149,7 +5108,8 @@ type disposeAsyncError struct{}
 
 func (disposeAsyncError) exec(vm *vm) {
 	vm.sp--
-	vm.addDisposeError(len(vm.tryStack)-2, &Exception{
+	completion := &vm.tryStack[len(vm.tryStack)-2].exception
+	vm.r.addDisposeError(completion, &Exception{
 		val: vm.stack[vm.sp],
 	})
 	vm.pc++

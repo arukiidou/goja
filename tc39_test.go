@@ -150,13 +150,7 @@ var (
 		"test/language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js":                         true,
 		"test/language/statements/await-using/initializer-Symbol.asyncDispose-called-at-end-of-asyncgeneratorbody.js": true,
 		"test/language/statements/await-using/initializer-Symbol.dispose-called-at-end-of-asyncgeneratorbody.js":      true,
-
-		// These reference AsyncDisposableStack which is not implemented yet
-		"test/built-ins/DisposableStack/prototype/adopt/this-does-not-have-internal-disposablestate-throws.js":   true,
-		"test/built-ins/DisposableStack/prototype/defer/this-does-not-have-internal-disposablestate-throws.js":   true,
-		"test/built-ins/DisposableStack/prototype/dispose/this-does-not-have-internal-disposablestate-throws.js": true,
-		"test/built-ins/DisposableStack/prototype/move/this-does-not-have-internal-disposablestate-throws.js":    true,
-		"test/built-ins/DisposableStack/prototype/use/this-does-not-have-internal-disposablestate-throws.js":     true,
+		"test/staging/explicit-resource-management/await-using-in-async-generator-body.js":                            true,
 	}
 
 	featuresBlackList = []string{
@@ -196,9 +190,11 @@ var (
 	featuresBlackListExceptions = map[string][]string{
 		// async generators are not supported yet, but for-await-of is
 		"async-iteration": {"test/language/statements/for-await-of/"},
-		// only the synchronous built-ins and declarations are implemented so far
+		// Everything except %AsyncIteratorPrototype%[Symbol.asyncDispose] (test/built-ins/AsyncIteratorPrototype/)
+		// which can only be reached through an async generator.
 		"explicit-resource-management": {
 			"test/built-ins/DisposableStack/",
+			"test/built-ins/AsyncDisposableStack/",
 			"test/built-ins/SuppressedError/",
 			"test/built-ins/Symbol/dispose/",
 			"test/built-ins/Symbol/asyncDispose/",
@@ -207,6 +203,7 @@ var (
 			"test/language/statements/for-of/head-using-",
 			"test/language/statements/await-using/",
 			"test/language/statements/for-of/head-await-using-",
+			"test/staging/explicit-resource-management/",
 		},
 	}
 )
@@ -723,6 +720,7 @@ func TestTC39(t *testing.T) {
 		//ctx.runTC39File("test/language/types/number/8.5.1.js", t)
 		ctx.runTC39Tests("test/language")
 		ctx.runTC39Tests("test/built-ins")
+		ctx.runTC39Tests("test/staging/explicit-resource-management")
 		ctx.runTC39Tests("test/annexB/built-ins/Date")
 		ctx.runTC39Tests("test/annexB/built-ins/Function")
 		ctx.runTC39Tests("test/annexB/built-ins/String/prototype/anchor")

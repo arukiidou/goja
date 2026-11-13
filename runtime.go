@@ -84,11 +84,12 @@ type global struct {
 	BigInt64Array     *Object
 	BigUint64Array    *Object
 
-	WeakSet         *Object
-	DisposableStack *Object
-	WeakMap         *Object
-	Map             *Object
-	Set             *Object
+	WeakSet              *Object
+	DisposableStack      *Object
+	AsyncDisposableStack *Object
+	WeakMap              *Object
+	Map                  *Object
+	Set                  *Object
 
 	Error           *Object
 	AggregateError  *Object
@@ -113,15 +114,16 @@ type global struct {
 	DatePrototype     *Object
 	SymbolPrototype   *Object
 
-	ArrayBufferPrototype     *Object
-	DataViewPrototype        *Object
-	TypedArrayPrototype      *Object
-	WeakSetPrototype         *Object
-	DisposableStackPrototype *Object
-	WeakMapPrototype         *Object
-	MapPrototype             *Object
-	SetPrototype             *Object
-	PromisePrototype         *Object
+	ArrayBufferPrototype          *Object
+	DataViewPrototype             *Object
+	TypedArrayPrototype           *Object
+	WeakSetPrototype              *Object
+	DisposableStackPrototype      *Object
+	AsyncDisposableStackPrototype *Object
+	WeakMapPrototype              *Object
+	MapPrototype                  *Object
+	SetPrototype                  *Object
+	PromisePrototype              *Object
 
 	GeneratorFunctionPrototype *Object
 	GeneratorFunction          *Object
