@@ -490,6 +490,8 @@ type (
 	LexicalDeclaration struct {
 		Idx   file.Idx
 		Token token.Token
+		// Using is set for 'using' declarations. Token is token.CONST in this case.
+		Using bool
 		List  []*Binding
 	}
 
@@ -612,6 +614,8 @@ type (
 	ForDeclaration struct {
 		Idx     file.Idx
 		IsConst bool
+		// IsUsing is set for 'using' declarations. IsConst is also set in this case.
+		IsUsing bool
 		Target  BindingTarget
 	}
 

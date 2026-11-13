@@ -322,6 +322,7 @@ type block struct {
 	breaking   *block // set when the 'finally' block is an empty break statement sequence
 	needResult bool
 	async      bool // for-await loop
+	using      bool // implicit try/finally that disposes of the resources added by using declarations
 }
 
 func (c *compiler) leaveScopeBlock(enter *enterBlock) {
@@ -1366,6 +1367,7 @@ func (c *compiler) enterDummyMode() (leaveFunc func()) {
 			label:    savedBlock.label,
 			outer:    savedBlock.outer,
 			breaking: savedBlock.breaking,
+			using:    savedBlock.using,
 		}
 	}
 	c.p = &Program{

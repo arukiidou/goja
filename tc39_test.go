@@ -146,6 +146,9 @@ var (
 		"test/language/module-code/top-level-await/pending-async-dep-from-cycle.js":                                                         true,
 		"test/language/module-code/top-level-await/module-graphs-does-not-hang.js":                                                          true,
 
+		// async generators are not supported yet
+		"test/language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js": true,
+
 		// These reference AsyncDisposableStack which is not implemented yet
 		"test/built-ins/DisposableStack/prototype/adopt/this-does-not-have-internal-disposablestate-throws.js":   true,
 		"test/built-ins/DisposableStack/prototype/defer/this-does-not-have-internal-disposablestate-throws.js":   true,
@@ -191,13 +194,15 @@ var (
 	featuresBlackListExceptions = map[string][]string{
 		// async generators are not supported yet, but for-await-of is
 		"async-iteration": {"test/language/statements/for-await-of/"},
-		// only the synchronous built-ins are implemented so far
+		// only the synchronous built-ins and declarations are implemented so far
 		"explicit-resource-management": {
 			"test/built-ins/DisposableStack/",
 			"test/built-ins/SuppressedError/",
 			"test/built-ins/Symbol/dispose/",
 			"test/built-ins/Symbol/asyncDispose/",
 			"test/built-ins/Iterator/prototype/Symbol.dispose/",
+			"test/language/statements/using/",
+			"test/language/statements/for-of/head-using-",
 		},
 	}
 )

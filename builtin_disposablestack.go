@@ -12,23 +12,31 @@ type disposeCapability struct {
 	resources []disposableResource
 }
 
-// addDisposableResource implements AddDisposableResource(disposeCapability, V, sync-dispose).
-func (r *Runtime) addDisposableResource(dc *disposeCapability, v Value) {
+// createDisposableResource implements CreateDisposableResource(V, sync-dispose).
+// Returns false if v is null or undefined in which case no resource should be added.
+func (r *Runtime) createDisposableResource(v Value) (res disposableResource, ok bool) {
 	if v == nil || v == _undefined || v == _null {
 		return
 	}
-	obj, ok := v.(*Object)
-	if !ok {
+	obj, isObj := v.(*Object)
+	if !isObj {
 		panic(r.NewTypeError("Disposable resource must be an object, null or undefined"))
 	}
 	method := toMethod(obj.self.getSym(SymDispose, obj))
 	if method == nil {
 		panic(r.NewTypeError("Object is not disposable: [Symbol.dispose] is not a function"))
 	}
-	dc.resources = append(dc.resources, disposableResource{
+	return disposableResource{
 		value:  v,
 		method: method,
-	})
+	}, true
+}
+
+// addDisposableResource implements AddDisposableResource(disposeCapability, V, sync-dispose).
+func (r *Runtime) addDisposableResource(dc *disposeCapability, v Value) {
+	if res, ok := r.createDisposableResource(v); ok {
+		dc.resources = append(dc.resources, res)
+	}
 }
 
 // addDisposeCallback adds a resource that has no value, only the method (as created by adopt() and defer()).

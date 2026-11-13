@@ -75,6 +75,10 @@ func (self *_parser) parseStatement() ast.Statement {
 		self.insertSemicolon = true
 	case token.CONST:
 		return self.parseLexicalDeclaration(self.token)
+	case token.IDENTIFIER:
+		if self.isUsingDeclaration(false) {
+			return self.parseUsingDeclaration()
+		}
 	case token.ASYNC:
 		if f := self.parseMaybeAsyncFunction(true); f != nil {
 			return &ast.FunctionDeclaration{
@@ -587,7 +591,11 @@ func (self *_parser) parseCaseStatement() *ast.CaseStatement {
 			break
 		}
 		self.scope.allowLet = true
-		node.Consequent = append(node.Consequent, self.parseStatement())
+		st := self.parseStatement()
+		if isUsingDeclarationStatement(st) {
+			self.error(st.Idx0(), "using declarations are not allowed in a case clause")
+		}
+		node.Consequent = append(node.Consequent, st)
 
 	}
 
@@ -677,12 +685,16 @@ func (self *_parser) parseForOrForInStatement() ast.Statement {
 		allowIn := self.scope.allowIn
 		self.scope.allowIn = false
 		tok := self.token
+		isUsing := false
 		if tok == token.LET {
 			switch self.peek() {
 			case token.IDENTIFIER, token.LEFT_BRACKET, token.LEFT_BRACE:
 			default:
 				tok = token.IDENTIFIER
 			}
+		} else if self.isUsingDeclaration(true) {
+			tok = token.CONST
+			isUsing = true
 		}
 		if tok == token.VAR || tok == token.LET || tok == token.CONST {
 			idx := self.idx
@@ -703,6 +715,14 @@ func (self *_parser) parseForOrForInStatement() ast.Statement {
 				}
 			}
 			if forIn || forOf {
+				if isUsing {
+					if forIn {
+						self.error(idx, "The left-hand side of a for-in loop may not be a using declaration")
+					}
+					if _, ok := list[0].Target.(*ast.Identifier); !ok {
+						self.error(list[0].Target.Idx0(), "using declarations may not have binding patterns")
+					}
+				}
 				if list[0].Initializer != nil {
 					// for (var x = ... in ...) is allowed in non-strict code (B.3.5), strict mode is checked by the compiler
 					if _, ok := list[0].Target.(*ast.Identifier); !ok || !forIn || tok != token.VAR {
@@ -717,11 +737,15 @@ func (self *_parser) parseForOrForInStatement() ast.Statement {
 					into = &ast.ForDeclaration{
 						Idx:     idx,
 						IsConst: tok == token.CONST,
+						IsUsing: isUsing,
 						Target:  list[0].Target,
 					}
 				}
 			} else {
 				self.ensurePatternInit(list)
+				if isUsing {
+					self.checkUsingBindings(list)
+				}
 				if tok == token.VAR {
 					initializer = &ast.ForLoopInitializerVarDeclList{
 						List: list,
@@ -731,6 +755,7 @@ func (self *_parser) parseForOrForInStatement() ast.Statement {
 						LexicalDeclaration: ast.LexicalDeclaration{
 							Idx:   idx,
 							Token: tok,
+							Using: isUsing,
 							List:  list,
 						},
 					}
@@ -843,6 +868,62 @@ func (self *_parser) parseLexicalDeclaration(tok token.Token) *ast.LexicalDeclar
 	}
 }
 
+// isUsingDeclaration returns true if the current token is the 'using' contextual keyword that starts
+// a using declaration, i.e. it is followed by a binding identifier on the same line.
+// In the head of a 'for' statement 'using of' only starts a declaration if it's followed by '='.
+func (self *_parser) isUsingDeclaration(forHead bool) bool {
+	if self.token != token.IDENTIFIER || self.literal != "using" {
+		return false
+	}
+	var state parserState
+	self.mark(&state)
+	self.next()
+	res := !self.implicitSemicolon && (self.token == token.IDENTIFIER || token.IsUnreservedWord(self.token))
+	if res && forHead && self.token == token.IDENTIFIER && self.literal == "of" {
+		self.next()
+		res = self.token == token.ASSIGN
+	}
+	self.restore(&state)
+	return res
+}
+
+func (self *_parser) checkUsingBindings(list []*ast.Binding) {
+	for _, item := range list {
+		if _, ok := item.Target.(*ast.Identifier); !ok {
+			self.error(item.Target.Idx0(), "using declarations may not have binding patterns")
+			break
+		}
+		if item.Initializer == nil {
+			self.error(item.Idx1(), "Missing initializer in using declaration")
+			break
+		}
+	}
+}
+
+func (self *_parser) parseUsingDeclaration() *ast.LexicalDeclaration {
+	idx := self.idx
+	self.next() // using
+	if !self.scope.allowLet {
+		self.error(idx, "Lexical declaration cannot appear in a single-statement context")
+	}
+
+	list := self.parseVariableDeclarationList()
+	self.checkUsingBindings(list)
+	self.semicolon()
+
+	return &ast.LexicalDeclaration{
+		Idx:   idx,
+		Token: token.CONST,
+		Using: true,
+		List:  list,
+	}
+}
+
+func isUsingDeclarationStatement(st ast.Statement) bool {
+	lex, ok := st.(*ast.LexicalDeclaration)
+	return ok && lex.Using
+}
+
 func (self *_parser) parseDoWhileStatement() ast.Statement {
 	inIteration := self.scope.inIteration
 	self.scope.inIteration = true
@@ -911,7 +992,11 @@ func (self *_parser) parseIfStatement() ast.Statement {
 func (self *_parser) parseSourceElements() (body []ast.Statement) {
 	for self.token != token.EOF {
 		self.scope.allowLet = true
-		body = append(body, self.parseStatement())
+		st := self.parseStatement()
+		if isUsingDeclarationStatement(st) {
+			self.error(st.Idx0(), "using declarations are not allowed at the top level of a script")
+		}
+		body = append(body, st)
 	}
 
 	return body

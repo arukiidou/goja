@@ -60,6 +60,9 @@ type tryFrame struct {
 	privEnv *privateEnv
 
 	catchPos, finallyPos, finallyRet int32
+
+	// resources added by using declarations (if any)
+	disposables *disposeCapability
 }
 
 type execCtx struct {
@@ -5039,6 +5042,38 @@ func (leaveFinally) exec(vm *vm) {
 			vm.pc++
 		}
 	}
+}
+
+// addDisposable adds the value at the top of the stack (without removing it) as a disposable resource
+// to the current try frame, which must be the one created by compiler.enterUsingBlock().
+type addDisposable struct{}
+
+func (addDisposable) exec(vm *vm) {
+	// May call a getter, therefore must be done before obtaining the try frame pointer.
+	if res, ok := vm.r.createDisposableResource(vm.stack[vm.sp-1]); ok {
+		tf := &vm.tryStack[len(vm.tryStack)-1]
+		if tf.disposables == nil {
+			tf.disposables = &disposeCapability{}
+		}
+		tf.disposables.resources = append(tf.disposables.resources, res)
+	}
+	vm.pc++
+}
+
+// disposeResources disposes of the resources added to the current try frame. It must be within the
+// 'finally' block, immediately followed by leaveFinally which (re-)throws the resulting exception, if any.
+type disposeResources struct{}
+
+func (disposeResources) exec(vm *vm) {
+	idx := len(vm.tryStack) - 1
+	tf := &vm.tryStack[idx]
+	if dc := tf.disposables; dc != nil {
+		tf.disposables = nil
+		ex := vm.r.disposeResources(dc, tf.exception)
+		// the try stack could have been reallocated
+		vm.tryStack[idx].exception = ex
+	}
+	vm.pc++
 }
 
 type _throw struct{}
