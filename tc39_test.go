@@ -146,7 +146,7 @@ var (
 		"test/language/module-code/top-level-await/pending-async-dep-from-cycle.js":                                                         true,
 		"test/language/module-code/top-level-await/module-graphs-does-not-hang.js":                                                          true,
 
-		// async generators are not supported yet
+		// async generators
 		"test/language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js":                         true,
 		"test/language/statements/await-using/initializer-Symbol.asyncDispose-called-at-end-of-asyncgeneratorbody.js": true,
 		"test/language/statements/await-using/initializer-Symbol.dispose-called-at-end-of-asyncgeneratorbody.js":      true,
@@ -178,7 +178,6 @@ var (
 
 		"regexp-duplicate-named-groups",
 		"regexp-v-flag",
-		"explicit-resource-management",
 		"Array.fromAsync",
 
 		"source-phase-imports",
@@ -190,21 +189,6 @@ var (
 	featuresBlackListExceptions = map[string][]string{
 		// async generators are not supported yet, but for-await-of is
 		"async-iteration": {"test/language/statements/for-await-of/"},
-		// Everything except %AsyncIteratorPrototype%[Symbol.asyncDispose] (test/built-ins/AsyncIteratorPrototype/)
-		// which can only be reached through an async generator.
-		"explicit-resource-management": {
-			"test/built-ins/DisposableStack/",
-			"test/built-ins/AsyncDisposableStack/",
-			"test/built-ins/SuppressedError/",
-			"test/built-ins/Symbol/dispose/",
-			"test/built-ins/Symbol/asyncDispose/",
-			"test/built-ins/Iterator/prototype/Symbol.dispose/",
-			"test/language/statements/using/",
-			"test/language/statements/for-of/head-using-",
-			"test/language/statements/await-using/",
-			"test/language/statements/for-of/head-await-using-",
-			"test/staging/explicit-resource-management/",
-		},
 	}
 )
 
@@ -250,7 +234,7 @@ func init() {
 
 	skip(
 		// generators and async generators (harness/hidden-constructors.js)
-		// Note: this used to be the prefix "test/built-ins/Async" which also matches AsyncDisposableStack.
+		// (not simply "test/built-ins/Async" which would also match AsyncDisposableStack)
 		"test/built-ins/AsyncFromSyncIteratorPrototype",
 		"test/built-ins/AsyncFunction",
 		"test/built-ins/AsyncGeneratorFunction",
