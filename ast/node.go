@@ -490,6 +490,10 @@ type (
 	LexicalDeclaration struct {
 		Idx   file.Idx
 		Token token.Token
+		// Using is set for 'using' and 'await using' declarations. Token is token.CONST in this case.
+		Using bool
+		// Await is set for 'await using' declarations.
+		Await bool
 		List  []*Binding
 	}
 
@@ -612,7 +616,11 @@ type (
 	ForDeclaration struct {
 		Idx     file.Idx
 		IsConst bool
-		Target  BindingTarget
+		// IsUsing is set for 'using' and 'await using' declarations. IsConst is also set in this case.
+		IsUsing bool
+		// IsAwaitUsing is set for 'await using' declarations.
+		IsAwaitUsing bool
+		Target       BindingTarget
 	}
 
 	ForIntoExpression struct {

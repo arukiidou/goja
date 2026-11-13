@@ -1533,7 +1533,14 @@ func (e *compiledFunctionLiteral) compile() (prg *Program, name unistring.String
 	if e.isGenerator {
 		e.c.emit(yieldEmpty)
 	}
+	usingLbl := -1
+	if using, async := hasUsingDeclaration(body); using {
+		usingLbl = e.c.enterUsingBlock(async)
+	}
 	e.c.compileStatements(body, false)
+	if usingLbl != -1 {
+		e.c.leaveUsingBlock(usingLbl)
+	}
 
 	var last ast.Statement
 	if l := len(body); l > 0 {

@@ -145,6 +145,12 @@ var (
 		"test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js":                         true,
 		"test/language/module-code/top-level-await/pending-async-dep-from-cycle.js":                                                         true,
 		"test/language/module-code/top-level-await/module-graphs-does-not-hang.js":                                                          true,
+
+		// async generators
+		"test/language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js":                         true,
+		"test/language/statements/await-using/initializer-Symbol.asyncDispose-called-at-end-of-asyncgeneratorbody.js": true,
+		"test/language/statements/await-using/initializer-Symbol.dispose-called-at-end-of-asyncgeneratorbody.js":      true,
+		"test/staging/explicit-resource-management/await-using-in-async-generator-body.js":                            true,
 	}
 
 	featuresBlackList = []string{
@@ -172,7 +178,6 @@ var (
 
 		"regexp-duplicate-named-groups",
 		"regexp-v-flag",
-		"explicit-resource-management",
 		"Array.fromAsync",
 
 		"source-phase-imports",
@@ -229,7 +234,12 @@ func init() {
 
 	skip(
 		// generators and async generators (harness/hidden-constructors.js)
-		"test/built-ins/Async",
+		// (not simply "test/built-ins/Async" which would also match AsyncDisposableStack)
+		"test/built-ins/AsyncFromSyncIteratorPrototype",
+		"test/built-ins/AsyncFunction",
+		"test/built-ins/AsyncGeneratorFunction",
+		"test/built-ins/AsyncGeneratorPrototype",
+		"test/built-ins/AsyncIteratorPrototype",
 
 		// async generators
 		"test/language/statements/class/elements/wrapped-in-sc-rs-static-async-generator-",
@@ -699,6 +709,7 @@ func TestTC39(t *testing.T) {
 		//ctx.runTC39File("test/language/types/number/8.5.1.js", t)
 		ctx.runTC39Tests("test/language")
 		ctx.runTC39Tests("test/built-ins")
+		ctx.runTC39Tests("test/staging/explicit-resource-management")
 		ctx.runTC39Tests("test/annexB/built-ins/Date")
 		ctx.runTC39Tests("test/annexB/built-ins/Function")
 		ctx.runTC39Tests("test/annexB/built-ins/String/prototype/anchor")

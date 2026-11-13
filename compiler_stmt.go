@@ -170,8 +170,15 @@ func (c *compiler) compileTryStatement(v *ast.TryStatement, needResult bool) {
 				c.scope.bindNameLexical(decl.Function.Name.Name, true, int(decl.Function.Name.Idx1())-1)
 			}
 			c.compileLexicalDeclarations(list, true)
+			usingLbl := -1
+			if using, async := hasUsingDeclaration(list); using {
+				usingLbl = c.enterUsingBlock(async)
+			}
 			c.compileFunctions(funcs)
 			c.compileStatements(list, bodyNeedResult)
+			if usingLbl != -1 {
+				c.leaveUsingBlock(usingLbl)
+			}
 			c.leaveScopeBlock(enter)
 			if c.scope.dynLookup || c.scope.bindings[0].inStash {
 				c.p.code[lbl+catchOffset] = &enterCatchBlock{
@@ -255,6 +262,35 @@ func (c *compiler) compileForHeadLexDecl(decl *ast.LexicalDeclaration, needResul
 }
 
 func (c *compiler) compileLabeledForStatement(v *ast.ForStatement, needResult bool, label unistring.String) {
+	if init, ok := v.Initializer.(*ast.ForLoopInitializerLexicalDecl); ok && init.LexicalDeclaration.Using {
+		// The bindings created by a using declaration are immutable, therefore they are not copied
+		// for each iteration and the resources are disposed of when the loop exits. This makes
+		//   for (using x = init; test; update) body
+		// equivalent to
+		//   { using x = init; for (; test; update) body }
+		var loop ast.Statement = &ast.ForStatement{
+			For:    v.For,
+			Update: v.Update,
+			Test:   v.Test,
+			Body:   v.Body,
+		}
+		if label != "" {
+			loop = &ast.LabelledStatement{
+				Label: &ast.Identifier{
+					Name: label,
+					Idx:  v.For,
+				},
+				Colon:     v.For,
+				Statement: loop,
+			}
+		}
+		c.compileBlockStatement(&ast.BlockStatement{
+			LeftBrace:  v.For,
+			List:       []ast.Statement{&init.LexicalDeclaration, loop},
+			RightBrace: v.Body.Idx1(),
+		}, needResult)
+		return
+	}
 	loopBlock := &block{
 		typ:        blockLoop,
 		outer:      c.block,
@@ -359,7 +395,8 @@ func (c *compiler) compileForInStatement(v *ast.ForInStatement, needResult bool)
 	c.compileLabeledForInStatement(v, needResult, "")
 }
 
-func (c *compiler) compileForInto(into ast.ForInto, needResult bool) (enter *enterBlock) {
+func (c *compiler) compileForInto(into ast.ForInto, needResult bool) (enter *enterBlock, usingLbl int) {
+	usingLbl = -1
 	switch into := into.(type) {
 	case *ast.ForIntoExpression:
 		c.compileExpression(into.Expression).emitSetter(&c.enumGetExpr, false)
@@ -387,9 +424,17 @@ func (c *compiler) compileForInto(into ast.ForInto, needResult bool) (enter *ent
 		switch target := into.Target.(type) {
 		case *ast.Identifier:
 			b := c.createLexicalIdBinding(target.Name, into.IsConst, int(into.Idx)-1)
-			c.emit(enumGet)
+			if into.IsUsing {
+				usingLbl = c.enterUsingBlock(into.IsAwaitUsing)
+				c.emit(enumGet, addDisposable(into.IsAwaitUsing))
+			} else {
+				c.emit(enumGet)
+			}
 			b.emitInitP()
 		case ast.Pattern:
+			if into.IsUsing {
+				c.throwSyntaxError(int(into.Idx)-1, "using declarations may not have binding patterns")
+			}
 			c.createLexicalBinding(target, into.IsConst)
 			c.emit(enumGet)
 			c.emitPattern(target, func(target, init compiledExpr) {
@@ -478,11 +523,14 @@ func (c *compiler) compileLabeledForInOfStatement(into ast.ForInto, source ast.E
 		}
 		c.emit(nil)
 	}
-	enterIterBlock := c.compileForInto(into, needResult)
+	enterIterBlock, usingLbl := c.compileForInto(into, needResult)
 	if needResult {
 		c.emit(clearResult)
 	}
 	c.compileStatement(body, needResult)
+	if usingLbl != -1 {
+		c.leaveUsingBlock(usingLbl)
+	}
 	if enterIterBlock != nil {
 		c.leaveScopeBlock(enterIterBlock)
 		c.popScope()
@@ -904,8 +952,87 @@ func (c *compiler) compileVariableStatement(v *ast.VariableStatement) {
 }
 
 func (c *compiler) compileLexicalDeclaration(v *ast.LexicalDeclaration) {
+	if v.Using {
+		c.compileUsingDeclaration(v)
+		return
+	}
 	for _, e := range v.List {
 		c.compileLexicalBinding(e)
+	}
+}
+
+// hasUsingDeclaration reports whether the statement list directly contains a using declaration and whether
+// any of those is an 'await using' declaration.
+func hasUsingDeclaration(list []ast.Statement) (using, async bool) {
+	for _, st := range list {
+		if lex, ok := st.(*ast.LexicalDeclaration); ok && lex.Using {
+			using = true
+			if lex.Await {
+				async = true
+				break
+			}
+		}
+	}
+	return
+}
+
+// enterUsingBlock starts a region in which the resources added by using declarations are tracked. It is
+// compiled as an implicit try/finally where the 'finally' block disposes of the resources.
+// Returns the position of the 'try' instruction which must be passed to leaveUsingBlock().
+func (c *compiler) enterUsingBlock(async bool) int {
+	c.block = &block{
+		typ:   blockTry,
+		outer: c.block,
+		using: true,
+		async: async,
+	}
+	lbl := len(c.p.code)
+	c.emit(nil)
+	return lbl
+}
+
+func (c *compiler) leaveUsingBlock(lbl int) {
+	c.emit(enterFinally{})
+	c.p.code[lbl] = try{finallyOffset: int32(len(c.p.code) - lbl)} // finallyOffset should not include enterFinally
+	if c.block.async {
+		// Each iteration disposes of the resources until one of them needs to be awaited. The 'try' is so that
+		// a rejection does not prevent the remaining resources from being disposed of.
+		c.emit(
+			try{catchOffset: 5},
+			disposeResourcesAsync(7),
+			await,
+			pop,
+			jump(2),
+			disposeAsyncError{},
+			leaveTry{},
+			jump(-7),
+		)
+	} else {
+		c.emit(disposeResources{})
+	}
+	c.emit(leaveFinally{})
+	c.leaveBlock()
+}
+
+func (c *compiler) compileUsingDeclaration(v *ast.LexicalDeclaration) {
+	if c.block == nil || !c.block.using {
+		c.throwSyntaxError(int(v.Idx)-1, "using declaration is not allowed here")
+	}
+	for _, e := range v.List {
+		target, ok := e.Target.(*ast.Identifier)
+		if !ok {
+			c.throwSyntaxError(int(e.Target.Idx0())-1, "using declarations may not have binding patterns")
+		}
+		offset := int(target.Idx) - 1
+		if e.Initializer == nil {
+			c.throwSyntaxError(offset, "Missing initializer in using declaration")
+		}
+		b := c.scope.boundNames[target.Name]
+		c.assert(b != nil, offset, "Lexical declaration for an unbound name")
+		c.emitNamedOrConst(c.compileExpression(e.Initializer), target.Name)
+		c.p.addSrcMap(offset)
+		c.emit(addDisposable(v.Await))
+		b.emitInitP()
 	}
 }
 
@@ -1040,8 +1167,15 @@ func (c *compiler) compileBlockStatement(v *ast.BlockStatement, needResult bool)
 		enter = &enterBlock{}
 		c.emit(enter)
 	}
+	usingLbl := -1
+	if using, async := hasUsingDeclaration(v.List); using && scopeDeclared {
+		usingLbl = c.enterUsingBlock(async)
+	}
 	c.compileFunctions(funcs)
 	c.compileStatements(v.List, needResult)
+	if usingLbl != -1 {
+		c.leaveUsingBlock(usingLbl)
+	}
 	if scopeDeclared {
 		c.leaveScopeBlock(enter)
 		c.popScope()

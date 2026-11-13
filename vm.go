@@ -60,6 +60,9 @@ type tryFrame struct {
 	privEnv *privateEnv
 
 	catchPos, finallyPos, finallyRet int32
+
+	// resources added by using declarations (if any)
+	disposables *disposeCapability
 }
 
 type execCtx struct {
@@ -5039,6 +5042,77 @@ func (leaveFinally) exec(vm *vm) {
 			vm.pc++
 		}
 	}
+}
+
+// addDisposable adds the value at the top of the stack (without removing it) as a disposable resource
+// to the current try frame, which must be the one created by compiler.enterUsingBlock().
+// The value is true for 'await using' declarations.
+type addDisposable bool
+
+func (async addDisposable) exec(vm *vm) {
+	// May call a getter, therefore must be done before obtaining the try frame pointer.
+	if res, ok := vm.r.createDisposableResource(vm.stack[vm.sp-1], bool(async)); ok {
+		tf := &vm.tryStack[len(vm.tryStack)-1]
+		if tf.disposables == nil {
+			tf.disposables = &disposeCapability{}
+		}
+		tf.disposables.resources = append(tf.disposables.resources, res)
+	}
+	vm.pc++
+}
+
+// disposeResources disposes of the resources added to the current try frame. It must be within the
+// 'finally' block, immediately followed by leaveFinally which (re-)throws the resulting exception, if any.
+type disposeResources struct{}
+
+func (disposeResources) exec(vm *vm) {
+	idx := len(vm.tryStack) - 1
+	tf := &vm.tryStack[idx]
+	if dc := tf.disposables; dc != nil {
+		tf.disposables = nil
+		ex := vm.r.disposeResources(dc, tf.exception)
+		// the try stack could have been reallocated
+		vm.tryStack[idx].exception = ex
+	}
+	vm.pc++
+}
+
+// disposeResourcesAsync is the 'await using' version of disposeResources. It disposes of the resources until it
+// finds one that needs to be awaited, in which case it pushes the value to await and continues to the next
+// instruction (which must be await). Once there are no more resources left it pops the current try frame (the one
+// that catches the rejections) and jumps. The try frame created by compiler.enterUsingBlock() must be right below
+// the current one.
+type disposeResourcesAsync int32
+
+func (jmp disposeResourcesAsync) exec(vm *vm) {
+	idx := len(vm.tryStack) - 2
+	if dc := vm.tryStack[idx].disposables; dc != nil {
+		completion := vm.tryStack[idx].exception
+		v, ok := vm.r.disposeStep(dc, &completion)
+		// the try stack could have been reallocated
+		vm.tryStack[idx].exception = completion
+		if ok {
+			vm.push(v)
+			vm.pc++
+			return
+		}
+		vm.tryStack[idx].disposables = nil
+	}
+	vm.popTryFrame()
+	vm.pc += int(jmp)
+}
+
+// disposeAsyncError handles a rejection of an awaited result of an async dispose method. The exception is at
+// the top of the stack, the try frame created by compiler.enterUsingBlock() is right below the current one.
+type disposeAsyncError struct{}
+
+func (disposeAsyncError) exec(vm *vm) {
+	vm.sp--
+	completion := &vm.tryStack[len(vm.tryStack)-2].exception
+	vm.r.addDisposeError(completion, &Exception{
+		val: vm.stack[vm.sp],
+	})
+	vm.pc++
 }
 
 type _throw struct{}
